@@ -43,6 +43,7 @@ type Capture struct {
 	Time       time.Time
 	IDN        string
 	SampleRate float64 // Sa/s
+	Screen     bool    // only the screen data was read, not the full memory
 	Points     int     // samples per channel
 	XInc       float64 // s between samples
 	XOrig      float64 // time of first sample relative to trigger
@@ -102,12 +103,13 @@ func onOff(v string) string {
 
 var unitNames = map[string]string{"VOLT": "V", "AMP": "A", "WATT": "W", "UNKN": "U"}
 
-// Capture stops the scope, reads the settings and downloads the whole sample
-// memory of every displayed analog channel. The scope stays stopped so the
-// screen shows the same data.
-func (s *Scope) Capture() (*Capture, error) {
+// Capture stops the scope, reads the settings and downloads the samples of
+// every displayed analog channel: the whole memory, or with screen set only
+// the ~1200 points shown on the screen. The scope stays stopped so the screen
+// shows the same data.
+func (s *Scope) Capture(screen bool) (*Capture, error) {
 	r := &reader{s: s}
-	c := &Capture{Time: time.Now()}
+	c := &Capture{Time: time.Now(), Screen: screen}
 	c.IDN = r.str("*IDN?")
 	status := r.str(":TRIGger:STATus?") // before :STOP changes it
 	r.cmd(":STOP")
@@ -174,7 +176,13 @@ func (s *Scope) Capture() (*Capture, error) {
 		return nil, fmt.Errorf("no channel is displayed on the scope")
 	}
 
-	r.cmd(":WAVeform:MODE RAW")
+	if screen {
+		r.cmd(":WAVeform:MODE NORMal")
+		c.Acquire = append(c.Acquire, Param{"Data", "screen"})
+	} else {
+		r.cmd(":WAVeform:MODE RAW")
+		c.Acquire = append(c.Acquire, Param{"Data", "full memory"})
+	}
 	r.cmd(":WAVeform:FORMat BYTE")
 	for _, ch := range c.Channels {
 		r.cmd(":WAVeform:SOURce CHAN" + ch.Name[2:])

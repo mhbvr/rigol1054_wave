@@ -45,7 +45,7 @@ func fakeScope(t *testing.T, points int) string {
 		}
 		defer c.Close()
 		r := bufio.NewReader(c)
-		src, start, stop := "", 1, 1
+		src, mode, start, stop := "", "", 1, 1
 		for {
 			line, err := r.ReadString('\n')
 			if err != nil {
@@ -54,6 +54,8 @@ func fakeScope(t *testing.T, points int) string {
 			cmd := strings.TrimSpace(line)
 			f := strings.Fields(cmd)
 			switch {
+			case len(f) == 2 && f[0] == ":WAVeform:MODE":
+				mode = f[1]
 			case len(f) == 2 && f[0] == ":WAVeform:SOURce":
 				src = f[1]
 			case len(f) == 2 && f[0] == ":WAVeform:STARt":
@@ -66,6 +68,8 @@ func fakeScope(t *testing.T, points int) string {
 				t.Errorf("%s: start %d > stop %d", cmd, start, stop)
 			}
 			switch {
+			case cmd == ":WAVeform:PREamble?" && mode == "NORMal":
+				fmt.Fprintf(c, "0,0,1200,1,1.000000e-05,-6.000000e-03,0,4.000000e-02,0,127\n")
 			case cmd == ":WAVeform:PREamble?":
 				fmt.Fprintf(c, "0,0,%d,1,1.000000e-08,-6.000000e-03,0,4.000000e-02,0,127\n", points)
 			case cmd == ":WAVeform:DATA?":
@@ -98,7 +102,7 @@ func TestCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	c, err := s.Capture()
+	c, err := s.Capture(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,13 +136,28 @@ func TestCapture(t *testing.T) {
 	}
 }
 
+func TestCaptureScreen(t *testing.T) {
+	s, err := Dial(fakeScope(t, 1000000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Capture(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Points != 1200 || len(c.Channels[0].Data) != 1200 || c.XInc != 1e-5 {
+		t.Errorf("got %d points, interval %g", c.Points, c.XInc)
+	}
+}
+
 func TestWriteCSV(t *testing.T) {
 	s, err := Dial(fakeScope(t, 1000))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	c, err := s.Capture()
+	c, err := s.Capture(false)
 	if err != nil {
 		t.Fatal(err)
 	}

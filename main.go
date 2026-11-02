@@ -91,7 +91,7 @@ func (s *server) capture(w http.ResponseWriter, r *http.Request) {
 		s.msg = "not connected"
 		return
 	}
-	c, err := s.scope.Capture()
+	c, err := s.scope.Capture(r.FormValue("mode") == "screen")
 	if err != nil {
 		// The connection may be out of sync after an error; start over.
 		s.closeScope()

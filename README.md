@@ -25,6 +25,10 @@ trigger settings. The scope is left stopped, so its screen matches the
 downloaded data. Deep memory takes a while: 24 Mpts over LAN can take tens of
 seconds.
 
+**Download screen data** reads only the ~1200 points per channel shown on the
+scope screen (`:WAV:MODE NORMal`). It is fast but decimated: its sample
+interval is screen width / 1200, usually much longer than 1 / sample rate.
+
 The graph shows the record the way the scope screen does (8 vertical
 divisions, each channel with its own V/div and offset, trigger at t = 0 as an
 orange dashed line):
