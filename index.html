@@ -34,7 +34,7 @@ Connected: {{.IDN}}
 {{with .Cap}}
 <p class="summary">
   Captured {{.Time.Format "2006-01-02 15:04:05"}} from {{.IDN}},
-  {{if .Screen}}<b>screen data only</b>{{else}}full memory{{end}}<br>
+  {{if .Screen}}<b>screen interval only</b>{{else}}full memory{{end}}<br>
   Sample rate <b>{{si .SampleRate "Sa/s"}}</b>, sample interval <b>{{si .XInc "s"}}</b>,
   <b>{{.Points}}</b> points per channel, record length <b>{{si .Duration "s"}}</b>
 </p>

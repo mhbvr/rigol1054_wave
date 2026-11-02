@@ -21,7 +21,7 @@ func fakeScope(t *testing.T, points int) string {
 	answers := map[string]string{
 		"*IDN?": "RIGOL TECHNOLOGIES,DS1054Z,DS1ZA000000000,00.04.04", "*OPC?": "1",
 		":TRIGger:STATus?": "TD", ":TIMebase:MODE?": "MAIN",
-		":TIMebase:MAIN:SCALe?": "1.000000e-03", ":TIMebase:MAIN:OFFSet?": "0.000000e+00",
+		":TIMebase:MAIN:SCALe?": "1.000000e-04", ":TIMebase:MAIN:OFFSet?": "0.000000e+00",
 		":ACQuire:TYPE?": "NORM", ":ACQuire:SRATe?": "1.000000e+08", ":ACQuire:MDEPth?": "AUTO",
 		":TRIGger:MODE?": "EDGE", ":TRIGger:SWEep?": "SING", ":TRIGger:COUPling?": "DC",
 		":TRIGger:HOLDoff?": "1.600000e-08", ":TRIGger:EDGe:SOURce?": "CHAN1",
@@ -45,7 +45,7 @@ func fakeScope(t *testing.T, points int) string {
 		}
 		defer c.Close()
 		r := bufio.NewReader(c)
-		src, mode, start, stop := "", "", 1, 1
+		src, start, stop := "", 1, 1
 		for {
 			line, err := r.ReadString('\n')
 			if err != nil {
@@ -54,8 +54,6 @@ func fakeScope(t *testing.T, points int) string {
 			cmd := strings.TrimSpace(line)
 			f := strings.Fields(cmd)
 			switch {
-			case len(f) == 2 && f[0] == ":WAVeform:MODE":
-				mode = f[1]
 			case len(f) == 2 && f[0] == ":WAVeform:SOURce":
 				src = f[1]
 			case len(f) == 2 && f[0] == ":WAVeform:STARt":
@@ -68,8 +66,6 @@ func fakeScope(t *testing.T, points int) string {
 				t.Errorf("%s: start %d > stop %d", cmd, start, stop)
 			}
 			switch {
-			case cmd == ":WAVeform:PREamble?" && mode == "NORMal":
-				fmt.Fprintf(c, "0,0,1200,1,1.000000e-05,-6.000000e-03,0,4.000000e-02,0,127\n")
 			case cmd == ":WAVeform:PREamble?":
 				fmt.Fprintf(c, "0,0,%d,1,1.000000e-08,-6.000000e-03,0,4.000000e-02,0,127\n", points)
 			case cmd == ":WAVeform:DATA?":
@@ -137,6 +133,7 @@ func TestCapture(t *testing.T) {
 }
 
 func TestCaptureScreen(t *testing.T) {
+	// Memory: 1M samples of 10 ns from -6 ms. Screen: 12 x 100 µs around 0.
 	s, err := Dial(fakeScope(t, 1000000))
 	if err != nil {
 		t.Fatal(err)
@@ -146,8 +143,16 @@ func TestCaptureScreen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Points != 1200 || len(c.Channels[0].Data) != 1200 || c.XInc != 1e-5 {
-		t.Errorf("got %d points, interval %g", c.Points, c.XInc)
+	if c.Points != 120000 || len(c.Channels[0].Data) != 120000 || c.XInc != 1e-8 {
+		t.Fatalf("got %d points, interval %g", c.Points, c.XInc)
+	}
+	if math.Abs(c.XOrig+0.6e-3) > 1e-12 {
+		t.Errorf("xorigin %g, want -0.6 ms", c.XOrig)
+	}
+	for i, b := range c.Channels[0].Data {
+		if b != byte(540000+i) {
+			t.Fatalf("CH1 sample %d = %d", i, b)
+		}
 	}
 }
 
