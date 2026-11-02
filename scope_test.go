@@ -60,6 +60,12 @@ func fakeScope(t *testing.T, points int) string {
 				start, _ = strconv.Atoi(f[1])
 			case len(f) == 2 && f[0] == ":WAVeform:STOP":
 				stop, _ = strconv.Atoi(f[1])
+			}
+			if start > stop {
+				// The real scope moves the other point and shows a message.
+				t.Errorf("%s: start %d > stop %d", cmd, start, stop)
+			}
+			switch {
 			case cmd == ":WAVeform:PREamble?":
 				fmt.Fprintf(c, "0,0,%d,1,1.000000e-08,-6.000000e-03,0,4.000000e-02,0,127\n", points)
 			case cmd == ":WAVeform:DATA?":
