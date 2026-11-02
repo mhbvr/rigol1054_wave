@@ -37,6 +37,13 @@ orange dashed line):
   peaks are lost; when zoomed in to more than 4 px per sample, every sample is
   drawn as a dot, so the real time resolution (sample interval) is visible.
 
+**Save CSV** links download the full record or only the visible range. The
+file starts with the capture settings as `#` comment lines, then a header and
+one row per sample: time in seconds from the trigger and the value of each
+channel (e.g. `time_s,CH1_V,CH2_V`). With pandas:
+`pd.read_csv("rigol_....csv", comment="#")`. A full 24 Mpts record is large
+(hundreds of MB), so the visible range is often the better choice.
+
 The sample rate, sample interval, number of points and record length are shown
 above the graph and in the Acquisition table.
 

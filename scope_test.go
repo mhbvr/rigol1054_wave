@@ -126,6 +126,31 @@ func TestCapture(t *testing.T) {
 	}
 }
 
+func TestWriteCSV(t *testing.T) {
+	s, err := Dial(fakeScope(t, 1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	if err := c.WriteCSV(&b, 127, 129); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
+	got := strings.Join(lines[len(lines)-3:], "\n")
+	want := "time_s,CH1_V,CH2_V\n-0.00599873,0,1\n-0.00599872,0.04,1"
+	if got != want {
+		t.Errorf("CSV tail:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(b.String(), "# CH1 Scale: 1 V/div\n") {
+		t.Errorf("CSV header has no channel settings:\n%s", b.String())
+	}
+}
+
 func TestSI(t *testing.T) {
 	for v, want := range map[float64]string{1e8: "100 MSa/s", 2e-6: "2 µSa/s", 0: "0 Sa/s", -0.05: "-50 mSa/s"} {
 		if got := si(v, "Sa/s"); got != want {

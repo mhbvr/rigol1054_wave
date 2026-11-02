@@ -125,6 +125,31 @@ func (s *server) data(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(c.View(start, end, n))
 }
 
+// csv sends samples as a CSV file: /csv for the full record,
+// /csv?start=&end= for a part of it.
+func (s *server) csv(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	c := s.cap
+	s.mu.Unlock()
+	if c == nil {
+		http.Error(w, "no capture", http.StatusNotFound)
+		return
+	}
+	start, end := 0, c.Points
+	if v, err := strconv.Atoi(r.URL.Query().Get("start")); err == nil {
+		start = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("end")); err == nil {
+		end = v
+	}
+	name := "rigol_" + c.Time.Format("20060102_150405") + ".csv"
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	if err := c.WriteCSV(w, start, end); err != nil {
+		log.Print(err)
+	}
+}
+
 func main() {
 	listen := flag.String("listen", "localhost:8080", "HTTP listen address")
 	flag.Parse()
@@ -135,6 +160,7 @@ func main() {
 	mux.HandleFunc("POST /connect", s.connect)
 	mux.HandleFunc("POST /capture", s.capture)
 	mux.HandleFunc("GET /data", s.data)
+	mux.HandleFunc("GET /csv", s.csv)
 	log.Printf("listening on http://%s", *listen)
 	log.Fatal(http.ListenAndServe(*listen, mux))
 }

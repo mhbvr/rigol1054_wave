@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -282,6 +284,45 @@ func (c *Capture) View(start, end, n int) View {
 		v.Channels = append(v.Channels, vc)
 	}
 	return v
+}
+
+// WriteCSV writes samples [start, end) as CSV: a time column (seconds from
+// the trigger) and one column per channel. The capture settings come first
+// as "#" comment lines.
+func (c *Capture) WriteCSV(w io.Writer, start, end int) error {
+	start = max(0, min(start, c.Points))
+	end = max(start, min(end, c.Points))
+	bw := bufio.NewWriter(w)
+	fmt.Fprintf(bw, "# %s\n# captured %s\n", c.IDN, c.Time.Format(time.RFC3339))
+	section := func(name string, ps []Param) {
+		for _, p := range ps {
+			fmt.Fprintf(bw, "# %s %s: %s\n", name, p.Name, p.Value)
+		}
+	}
+	section("Timebase", c.Timebase)
+	section("Acquisition", c.Acquire)
+	section("Trigger", c.Trigger)
+	for _, ch := range c.Channels {
+		section(ch.Name, ch.Params)
+	}
+	fmt.Fprintf(bw, "# samples %d..%d of %d\ntime_s", start, end, c.Points)
+	for _, ch := range c.Channels {
+		fmt.Fprintf(bw, ",%s_%s", ch.Name, ch.Unit)
+	}
+	bw.WriteByte('\n')
+	var line []byte
+	for i := start; i < end; i++ {
+		line = strconv.AppendFloat(line[:0], c.XOrig+(float64(i)-c.XRef)*c.XInc, 'g', 10, 64)
+		for _, ch := range c.Channels {
+			line = append(line, ',')
+			line = strconv.AppendFloat(line, ch.Value(ch.Data[i]), 'g', 6, 64)
+		}
+		line = append(line, '\n')
+		if _, err := bw.Write(line); err != nil {
+			return err
+		}
+	}
+	return bw.Flush()
 }
 
 // si formats a value with an SI prefix, e.g. si(2e-6, "s") = "2 µs".

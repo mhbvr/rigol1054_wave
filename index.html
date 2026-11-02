@@ -39,6 +39,7 @@ Connected: {{.IDN}}
   <button id="zin">Zoom in</button>
   <button id="zout">Zoom out</button>
   <button id="zall">Full record</button>
+  | Save CSV: <a href="/csv" download>full record</a>, <a id="csvview" href="/csv" download>visible range</a> |
   mouse wheel: zoom, drag: move in time
 </div>
 <div id="info"></div>
@@ -184,6 +185,7 @@ function setView(a, b) {
   let s = Math.max(10, Math.min(N, b - a));
   a = Math.max(0, Math.min(N - s, a));
   v0 = a; v1 = a + s;
+  document.getElementById("csvview").href = "/csv?start=" + Math.floor(v0) + "&end=" + Math.ceil(v1);
   draw();
   load();
 }
