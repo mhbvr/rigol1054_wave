@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Rigol DS1054Z waveforms</title>
+<style>
+body { font-family: sans-serif; margin: 16px; color: #222; background: #fff; }
+form { display: inline-block; margin-right: 16px; }
+.msg { color: #b00; }
+.summary { margin: 12px 0 4px; }
+#info { font-family: monospace; font-size: 13px; margin: 4px 0; min-height: 2.6em; white-space: pre; }
+canvas { width: 100%; height: 480px; background: #000; display: block; cursor: crosshair; }
+table { display: inline-table; vertical-align: top; border-collapse: collapse; font-size: 13px; margin: 8px 12px 0 0; }
+th, td { border: 1px solid #ccc; padding: 2px 8px; text-align: left; }
+</style>
+</head>
+<body>
+<h3>Rigol DS1054Z waveforms</h3>
+
+<form method="post" action="/connect">
+  Scope IP <input name="addr" value="{{.Addr}}" placeholder="192.168.1.100" required>
+  <button>Connect</button>
+</form>
+{{if .Connected}}
+<form method="post" action="/capture" onsubmit="this.querySelector('button').disabled = true; this.querySelector('span').textContent = ' stopping scope and downloading memory…';">
+  <button>Download waveforms</button><span></span>
+</form>
+Connected: {{.IDN}}
+{{end}}
+{{with .Msg}}<p class="msg">{{.}}</p>{{end}}
+
+{{with .Cap}}
+<p class="summary">
+  Captured {{.Time.Format "2006-01-02 15:04:05"}} from {{.IDN}}<br>
+  Sample rate <b>{{si .SampleRate "Sa/s"}}</b>, sample interval <b>{{si .XInc "s"}}</b>,
+  <b>{{.Points}}</b> points per channel, record length <b>{{si .Duration "s"}}</b>
+</p>
+<div>
+  <button id="zin">Zoom in</button>
+  <button id="zout">Zoom out</button>
+  <button id="zall">Full record</button>
+  | Save CSV: <a href="/csv" download>full record</a>, <a id="csvview" href="/csv" download>visible range</a> |
+  mouse wheel: zoom, drag: move in time
+</div>
+<div id="info"></div>
+<canvas id="plot"></canvas>
+
+<table>
+  <tr><th colspan="2">Timebase</th></tr>
+  {{range .Timebase}}<tr><td>{{.Name}}</td><td>{{.Value}}</td></tr>{{end}}
+</table>
+<table>
+  <tr><th colspan="2">Acquisition</th></tr>
+  {{range .Acquire}}<tr><td>{{.Name}}</td><td>{{.Value}}</td></tr>{{end}}
+</table>
+<table>
+  <tr><th colspan="2">Trigger</th></tr>
+  {{range .Trigger}}<tr><td>{{.Name}}</td><td>{{.Value}}</td></tr>{{end}}
+</table>
+{{range .Channels}}
+<table>
+  <tr><th colspan="2" class="{{.Name}}">{{.Name}}</th></tr>
+  {{range .Params}}<tr><td>{{.Name}}</td><td>{{.Value}}</td></tr>{{end}}
+</table>
+{{end}}
+
+<script>
+const CAP = {{$.Meta}};
+const COLORS = {CH1: "#f0e000", CH2: "#00e0ff", CH3: "#ff40ff", CH4: "#3c78ff"};
+
+const cv = document.getElementById("plot");
+const ctx = cv.getContext("2d");
+const info = document.getElementById("info");
+const N = CAP.Points;
+let v0 = 0, v1 = N;   // visible sample range [v0, v1)
+let view = null;      // last data from /data
+let loading = false, reload = false;
+let mouseX = -1, drag = null;
+
+for (const th of document.querySelectorAll("th")) {
+  if (COLORS[th.className]) th.style.background = COLORS[th.className];
+}
+
+// Time of sample i relative to the trigger.
+function t(i) { return CAP.XOrig + (i - CAP.XRef) * CAP.XInc; }
+
+function si(v, unit) {
+  if (v === 0 || !isFinite(v)) return v + " " + unit;
+  const p = ["p", "n", "µ", "m", "", "k", "M", "G"];
+  const e = Math.max(-4, Math.min(3, Math.floor(Math.log10(Math.abs(v)) / 3)));
+  return +(v / Math.pow(1000, e)).toPrecision(4) + " " + p[e + 4] + unit;
+}
+
+function load() {
+  if (loading) { reload = true; return; }
+  loading = true;
+  const n = Math.round(cv.clientWidth);
+  fetch("/data?start=" + Math.floor(v0) + "&end=" + Math.ceil(v1) + "&n=" + n)
+    .then(r => r.json())
+    .then(d => { view = d; draw(); })
+    .finally(() => { loading = false; if (reload) { reload = false; load(); } });
+}
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+
+  const span = v1 - v0;
+  const X = i => (i - v0) / span * W;
+
+  // Vertical grid: 8 divisions like the scope screen.
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let k = 1; k < 8; k++) { ctx.moveTo(0, k * H / 8 + 0.5); ctx.lineTo(W, k * H / 8 + 0.5); }
+  ctx.stroke();
+
+  // Time grid with 1-2-5 steps.
+  const tspan = span * CAP.XInc;
+  let step = Math.pow(10, Math.floor(Math.log10(tspan / 10)));
+  for (const m of [1, 2, 5, 10]) { if (tspan / (step * m) <= 10) { step *= m; break; } }
+  ctx.fillStyle = "#aaa";
+  ctx.font = "11px sans-serif";
+  ctx.beginPath();
+  for (let k = Math.ceil(t(v0) / step); k * step <= t(v1); k++) {
+    const x = Math.round(X((k * step - CAP.XOrig) / CAP.XInc + CAP.XRef)) + 0.5;
+    ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    ctx.fillText(si(k * step, "s"), x + 3, H - 4);
+  }
+  ctx.stroke();
+
+  // Trigger position (t = 0).
+  const xt = X(-CAP.XOrig / CAP.XInc + CAP.XRef);
+  ctx.strokeStyle = "#f80";
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(xt, 0); ctx.lineTo(xt, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Waveforms: a min/max envelope per bucket, single samples when zoomed in.
+  const pxPerSample = W / span;
+  if (view) {
+    view.Channels.forEach((vc, c) => {
+      const ch = CAP.Channels[c];
+      const Y = v => H / 2 - (v + ch.Offset) / ch.Scale * H / 8;
+      const xs = vc.Min.map((_, k) => X(view.Start + (view.Step > 1 ? (k + 0.5) * view.Step : k)));
+      ctx.strokeStyle = ctx.fillStyle = COLORS[ch.Name];
+      ctx.beginPath();
+      xs.forEach((x, k) => {
+        if (k === 0) ctx.moveTo(x, Y(vc.Min[k])); else ctx.lineTo(x, Y(vc.Min[k]));
+        ctx.lineTo(x, Y(vc.Max[k]));
+      });
+      ctx.stroke();
+      if (pxPerSample >= 4) xs.forEach((x, k) => ctx.fillRect(x - 1.5, Y(vc.Min[k]) - 1.5, 3, 3));
+      ctx.fillText(ch.Name + " " + si(ch.Scale, ch.Unit + "/div"), 6 + c * 120, 14);
+    });
+  }
+
+  // Cursor readout.
+  let text = "view " + si(tspan, "s") + "  [" + si(t(v0), "s") + " … " + si(t(v1), "s") + "]  " +
+    Math.round(span) + " samples  " +
+    (pxPerSample >= 1 ? +pxPerSample.toPrecision(3) + " px/sample" : +(1 / pxPerSample).toPrecision(3) + " samples/px");
+  if (mouseX >= 0) {
+    const i = v0 + mouseX / W * span;
+    ctx.strokeStyle = "#666";
+    ctx.beginPath(); ctx.moveTo(mouseX + 0.5, 0); ctx.lineTo(mouseX + 0.5, H); ctx.stroke();
+    text += "\ncursor " + si(t(i), "s");
+    if (view) {
+      const k = Math.floor((i - view.Start) / view.Step);
+      view.Channels.forEach((vc, c) => {
+        if (k < 0 || k >= vc.Min.length) return;
+        const u = CAP.Channels[c].Unit;
+        text += "  " + vc.Name + " " + (vc.Min[k] === vc.Max[k] ? si(vc.Min[k], u) : si(vc.Min[k], u) + " … " + si(vc.Max[k], u));
+      });
+    }
+  }
+  info.textContent = text;
+}
+
+// Set the visible range keeping it inside the record.
+function setView(a, b) {
+  let s = Math.max(10, Math.min(N, b - a));
+  a = Math.max(0, Math.min(N - s, a));
+  v0 = a; v1 = a + s;
+  document.getElementById("csvview").href = "/csv?start=" + Math.floor(v0) + "&end=" + Math.ceil(v1);
+  draw();
+  load();
+}
+
+function zoom(f, center) { setView(center - (center - v0) * f, center + (v1 - center) * f); }
+
+document.getElementById("zin").onclick = () => zoom(0.5, (v0 + v1) / 2);
+document.getElementById("zout").onclick = () => zoom(2, (v0 + v1) / 2);
+document.getElementById("zall").onclick = () => setView(0, N);
+
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  zoom(e.deltaY > 0 ? 1.25 : 0.8, v0 + e.offsetX / cv.clientWidth * (v1 - v0));
+});
+cv.addEventListener("mousedown", e => { drag = {x: e.offsetX, v0: v0}; });
+window.addEventListener("mouseup", () => { drag = null; });
+cv.addEventListener("mousemove", e => {
+  mouseX = e.offsetX;
+  if (drag) {
+    const d = (e.offsetX - drag.x) / cv.clientWidth * (v1 - v0);
+    setView(drag.v0 - d, drag.v0 - d + (v1 - v0));
+  } else {
+    draw();
+  }
+});
+cv.addEventListener("mouseleave", () => { mouseX = -1; draw(); });
+window.addEventListener("resize", () => { draw(); load(); });
+
+draw();
+load();
+</script>
+{{end}}
+</body>
+</html>
