@@ -25,6 +25,15 @@ trigger settings. The scope is left stopped, so its screen matches the
 downloaded data. Deep memory takes a while: 24 Mpts over LAN can take tens of
 seconds.
 
+**Download screen data** reads, at the same full sample rate, only the
+samples inside the time interval shown on the scope screen (12 divisions
+around the timebase offset). With a large memory depth the memory is often
+much longer than the screen, so this is faster and gives smaller files.
+
+The sample rate is chosen by the scope from the timebase and the memory
+depth. For the highest sample rate set the memory depth on the scope to the
+maximum (24M / 12M / 6M points for 1 / 2 / 3–4 channels) before capturing.
+
 The graph shows the record the way the scope screen does (8 vertical
 divisions, each channel with its own V/div and offset, trigger at t = 0 as an
 orange dashed line):

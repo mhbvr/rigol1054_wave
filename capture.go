@@ -43,6 +43,7 @@ type Capture struct {
 	Time       time.Time
 	IDN        string
 	SampleRate float64 // Sa/s
+	Screen     bool    // only the screen time interval was read, not the full memory
 	Points     int     // samples per channel
 	XInc       float64 // s between samples
 	XOrig      float64 // time of first sample relative to trigger
@@ -102,12 +103,14 @@ func onOff(v string) string {
 
 var unitNames = map[string]string{"VOLT": "V", "AMP": "A", "WATT": "W", "UNKN": "U"}
 
-// Capture stops the scope, reads the settings and downloads the whole sample
-// memory of every displayed analog channel. The scope stays stopped so the
-// screen shows the same data.
-func (s *Scope) Capture() (*Capture, error) {
+// Capture stops the scope, reads the settings and downloads the samples of
+// every displayed analog channel at the full sample rate: the whole memory,
+// or with screen set only the samples inside the time interval shown on the
+// screen (12 divisions). The scope stays stopped so the screen shows the
+// same data.
+func (s *Scope) Capture(screen bool) (*Capture, error) {
 	r := &reader{s: s}
-	c := &Capture{Time: time.Now()}
+	c := &Capture{Time: time.Now(), Screen: screen}
 	c.IDN = r.str("*IDN?")
 	status := r.str(":TRIGger:STATus?") // before :STOP changes it
 	r.cmd(":STOP")
@@ -135,10 +138,12 @@ func (s *Scope) Capture() (*Capture, error) {
 		c.Channels = append(c.Channels, ch)
 	}
 
+	tbScale := r.num(":TIMebase:MAIN:SCALe?")
+	tbOffset := r.num(":TIMebase:MAIN:OFFSet?")
 	c.Timebase = []Param{
 		{"Mode", r.str(":TIMebase:MODE?")},
-		{"Scale", si(r.num(":TIMebase:MAIN:SCALe?"), "s/div")},
-		{"Offset", si(r.num(":TIMebase:MAIN:OFFSet?"), "s")},
+		{"Scale", si(tbScale, "s/div")},
+		{"Offset", si(tbOffset, "s")},
 	}
 
 	acqType := r.str(":ACQuire:TYPE?")
@@ -175,6 +180,11 @@ func (s *Scope) Capture() (*Capture, error) {
 	}
 
 	r.cmd(":WAVeform:MODE RAW")
+	if screen {
+		c.Acquire = append(c.Acquire, Param{"Data", "screen interval"})
+	} else {
+		c.Acquire = append(c.Acquire, Param{"Data", "full memory"})
+	}
 	r.cmd(":WAVeform:FORMat BYTE")
 	for _, ch := range c.Channels {
 		r.cmd(":WAVeform:SOURce CHAN" + ch.Name[2:])
@@ -186,14 +196,24 @@ func (s *Scope) Capture() (*Capture, error) {
 		if ch.Pre, err = parsePreamble(pre); err != nil {
 			return nil, err
 		}
-		ch.Data = make([]byte, 0, ch.Pre.Points)
-		for start := 1; start <= ch.Pre.Points; start += chunkSize {
-			stop := min(start+chunkSize-1, ch.Pre.Points)
+		// Samples [first, last) are downloaded.
+		first, last := 0, ch.Pre.Points
+		if screen {
+			index := func(t float64) int { return int(math.Round((t-ch.Pre.XOrig)/ch.Pre.XInc + ch.Pre.XRef)) }
+			first = max(0, index(tbOffset-6*tbScale))
+			last = max(first+1, min(last, index(tbOffset+6*tbScale)))
+			ch.Pre.XOrig += float64(first) * ch.Pre.XInc
+			ch.Pre.Points = last - first
+		}
+		ch.Data = make([]byte, 0, last-first)
+		for start := first + 1; start <= last; start += chunkSize {
+			stop := min(start+chunkSize-1, last)
 			// Keep start <= stop at every step, otherwise the scope moves
 			// the other point itself and shows "start/stop point changed".
-			if start == 1 {
-				r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
+			if start == first+1 {
+				r.cmd(":WAVeform:STARt 1")
 				r.cmd(fmt.Sprintf(":WAVeform:STOP %d", stop))
+				r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
 			} else {
 				r.cmd(fmt.Sprintf(":WAVeform:STOP %d", stop))
 				r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
