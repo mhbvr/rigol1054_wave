@@ -189,8 +189,15 @@ func (s *Scope) Capture() (*Capture, error) {
 		ch.Data = make([]byte, 0, ch.Pre.Points)
 		for start := 1; start <= ch.Pre.Points; start += chunkSize {
 			stop := min(start+chunkSize-1, ch.Pre.Points)
-			r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
-			r.cmd(fmt.Sprintf(":WAVeform:STOP %d", stop))
+			// Keep start <= stop at every step, otherwise the scope moves
+			// the other point itself and shows "start/stop point changed".
+			if start == 1 {
+				r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
+				r.cmd(fmt.Sprintf(":WAVeform:STOP %d", stop))
+			} else {
+				r.cmd(fmt.Sprintf(":WAVeform:STOP %d", stop))
+				r.cmd(fmt.Sprintf(":WAVeform:STARt %d", start))
+			}
 			if r.err != nil {
 				return nil, r.err
 			}
